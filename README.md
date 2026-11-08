@@ -2,13 +2,13 @@
 
 > **Unidade Curricular:** Análise de Fenômenos Físicos da Natureza (Engenharia de Software)  
 > **Instituição:** Faculdade / Universidade  
-> **Autores:** Miguel Liz dos Santos, Lucas Simões Carvalho da Silva, Pedro Henrique Leal Martins, Lucas Campos de Souza, Rian Henrique Favretto, Ariana Oliveira  
+> **Autores:** Miguel Liz dos Santos, Lucas Simões Carvalho da Silva, Pedro Henrique Leal Martins, Lucas Campos de Souza, Rian Henrique Favretto
 
 ---
 
 ## 📌 Visão Geral do Projeto
 
-Este repositório contém os firmwares em C++ e as interfaces web desenvolvidas para a validação empírica da **Segunda e Terceira Lei de Newton** e do **Teorema do Impulso** ($I = \int F \, dt$). O trabalho integra microcontroladores de baixo custo (ESP32 e Arduino Uno) com protótipos físicos e *dashboards* interativos em tempo real.
+Este repositório contém os firmwares em C++ e as interfaces web desenvolvidas para a validação empírica da **Segunda e Terceira Lei de Newton** e do **Teorema do Impulso**. O trabalho integra microcontroladores de baixo custo (ESP32 e Arduino Uno) com protótipos físicos e *dashboards* interativos em tempo real.
 
 O projeto é dividido em dois sistemas independentes:
 1. **Sistema de Detecção de Colisão e Airbag (`COLLISION-DETECTION-SYSTEM`)**: Monitoramento inercial sem fio de um miniveículo remoto via ESP32 e acelerômetro MPU-6050 para detecção de desacelerações brutas e acionamento de atuador de segurança (micro servo SG90).
@@ -36,7 +36,7 @@ O projeto é dividido em dois sistemas independentes:
         ├── sketch.ino                    # Loop principal e comandos seriais
         ├── config.h                      # Configuração de pinos e limiares de força
         ├── ForceSensor.h/.cpp            # Leitura do HX711, tara e calibração
-        └── PushAnalyzer.h/.cpp           # Integração trapezoidal do impulso (I = ∫ F dt)
+        └── PushAnalyzer.h/.cpp           # Integração trapezoidal do impulso
 ```
 
 ---
@@ -51,7 +51,7 @@ O projeto é dividido em dois sistemas independentes:
 - **Atuador de Segurança:** Micro Servo SG90 (Sinal PWM)
   - PWM: GPIO 18 (Alimentação 5V/GND)
 - **Botão de Rearme Manual:** GPIO 0 (Botão BOOT da própria placa)
-- **Base Móvel:** Miniveículo de controle remoto (massa instrumentada: $0{,}2\text{ kg}$)
+- **Base Móvel:** Miniveículo de controle remoto
 
 ### Projeto 2: Push Challenge (Arduino Uno)
 - **Microcontrolador:** Arduino Uno R3 (ATmega328P)
@@ -109,7 +109,7 @@ Abra o Gerenciador de Bibliotecas na Arduino IDE (**Esquema > Incluir Biblioteca
 3. Certifique-se de fechar o Monitor Serial da Arduino IDE após a gravação (a porta COM precisa estar livre).
 4. Abra o arquivo `PUSH-CHALLENGE.html` no Google Chrome ou Microsoft Edge (navegadores com suporte à Web Serial API).
 5. Clique no botão **Conectar Serial** na interface web e selecione a porta COM correspondente ao Arduino Uno (configurada para 115200 baud).
-6. O sistema realizará a tara automática e iniciará a leitura das forças aplicadas ($N$) e o cálculo numérico do impulso ($N\cdot s$).
+6. O sistema realizará a tara automática e iniciará a leitura das forças aplicadas (N) e o cálculo numérico do impulso.
 
 ---
 
