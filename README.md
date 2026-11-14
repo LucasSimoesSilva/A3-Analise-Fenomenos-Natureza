@@ -1,8 +1,10 @@
 # Integrando Leis de Newton e Sistemas Embarcados em Tempo Real
 
-> **Unidade Curricular:** Análise de Fenômenos Físicos da Natureza (Engenharia de Software)  
-> **Instituição:** Universidade Anhembi Morumbi
-> **Autores:** Miguel Liz dos Santos, Lucas Simões Carvalho da Silva, Pedro Henrique Leal Martins, Lucas Campos de Souza, Rian Henrique Favretto
+**Unidade Curricular:** Análise de Fenômenos Físicos da Natureza (Engenharia de Software)
+
+**Instituição:** Universidade Anhembi Morumbi
+
+**Autores:** Miguel Liz dos Santos, Lucas Simões Carvalho da Silva, Pedro Henrique Leal Martins, Lucas Campos de Souza, Rian Henrique Favretto
 
 ---
 
