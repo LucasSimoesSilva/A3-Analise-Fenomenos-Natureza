@@ -1,19 +1,19 @@
 #include <Preferences.h>
- 
+
 #include "config.h"
 #include "MovingAverage.h"
 #include "Mpu6050.h"
 #include "CollisionDetector.h"
 #include "Airbag.h"
 #include "Net.h"
- 
+
 Mpu6050 imu;
 CollisionDetector detector;
 Airbag airbag;
-Preferences prefs;  // guarda threshold e orientação na flash (sobrevive a reset)
- 
+Preferences prefs;  // guarda threshold e orientação na flash
+
 MovingAverage<cfg::FILTER_WINDOW> filtX, filtY, filtZ;
- 
+
 ImuSample lastRaw = {};
 Vec3 accelFilt = {0, 0, 1};
 uint32_t nextSampleUs = 0;
@@ -22,7 +22,7 @@ uint32_t lastBatchMs = 0;
 uint32_t lastSampleMs = 0;
 uint32_t lastImuRetryMs = 0;
 uint16_t imuFails = 0;
- 
+
 // ---------------------------------------------------------------
 TelemetrySnapshot makeSnapshot() {
   TelemetrySnapshot s;
@@ -40,9 +40,9 @@ TelemetrySnapshot makeSnapshot() {
   s.collisionMs = detector.collisionMs();
   return s;
 }
- 
-// Mede o vetor gravidade com o carrinho PARADO. Bloqueia ~1 s.
-// Só aceita o resultado se o carrinho realmente estava parado; senão mantém a calibração anterior.
+
+// TARA: mede o vetor gravidade com o carrinho parado (~1 s, bloqueia o loop).
+// Se o carrinho estava mexendo, rejeita e mantém a calibração anterior.
 bool calibrate() {
   Serial.println("[CAL] mantenha o carrinho parado...");
   Vec3 sum = {0, 0, 0}, sumSq = {0, 0, 0};
@@ -59,44 +59,47 @@ bool calibrate() {
   }
   if (ok < cfg::CALIBRATION_SAMPLES / 2) {
     Serial.println("[CAL] ERRO: leituras validas insuficientes (calibracao anterior mantida)");
+    Net::publishCalibration(false, 0, 0);
     return false;
   }
- 
+
   Vec3 g0 = {sum.x / ok, sum.y / ok, sum.z / ok};
- 
-  // Desvio padrão por eixo: alto = o carrinho estava mexendo
   float vx = sumSq.x / ok - g0.x * g0.x;
   float vy = sumSq.y / ok - g0.y * g0.y;
   float vz = sumSq.z / ok - g0.z * g0.z;
-  float std = sqrtf(max(0.0f, max(vx, max(vy, vz))));
+  float stdG = sqrtf(max(0.0f, max(vx, max(vy, vz))));
   float mag = norm(g0);
-  Serial.printf("[CAL] g0 = (%.3f, %.3f, %.3f)  |g0| = %.3f g  ruido = %.3f g\n", g0.x, g0.y, g0.z, mag, std);
- 
-  if (mag < 0.9f || mag > 1.1f || std > cfg::CAL_MAX_STD_G) {
+  Serial.printf("[CAL] g0 = (%.3f, %.3f, %.3f)  |g0| = %.3f g  ruido = %.3f g\n", g0.x, g0.y, g0.z, mag, stdG);
+
+  bool good = !(mag < 0.9f || mag > 1.1f || (cfg::CAL_REQUIRE_STILL && stdG > cfg::CAL_MAX_STD_G));
+  Net::publishCalibration(good, mag, stdG);
+  if (!good) {
     Serial.println("[CAL] REJEITADA: carrinho mexeu ou |g0| longe de 1 g. Calibracao anterior mantida.");
     return false;
   }
- 
+
   detector.setGravityRef(g0);
   filtX.reset();
   filtY.reset();
   filtZ.reset();
+  Net::clearSamples();
+  Serial.println("[CAL] OK - G zerado.");
   return true;
 }
- 
+
 void rearm() {
   detector.rearm(millis());
   airbag.retract();
   Serial.println("[AIRBAG] rearmado");
 }
- 
+
 void setThreshold(float g) {
   g = constrain(g, cfg::MIN_THRESHOLD_G, cfg::MAX_THRESHOLD_G);
   detector.setThreshold(g);
   prefs.putFloat("thr", g);
   Serial.printf("[CFG] novo threshold = %.2f g (salvo)\n", g);
 }
- 
+
 void setOrientation(uint8_t axis, bool invert) {
   detector.setForward(axis, invert);
   prefs.putUChar("axis", axis);
@@ -104,7 +107,7 @@ void setOrientation(uint8_t axis, bool invert) {
   Serial.printf("[CFG] eixo de movimento = %c%s (salvo)\n", "XYZ"[axis > 2 ? 0 : axis],
                 invert ? " invertido" : "");
 }
- 
+
 void execute(const Command &c) {
   switch (c.type) {
     case CmdType::REARM:     rearm(); break;
@@ -114,11 +117,10 @@ void execute(const Command &c) {
     case CmdType::INVERT:    setOrientation(detector.axis(), c.value != 0); break;
   }
 }
- 
+
 // ---------------------------------------------------------------
 void sampleAndDetect() {
   if (!imu.read(lastRaw)) {
-    // Sem leitura = sem proteção. Avisa e tenta reiniciar o sensor.
     if (imuFails < 0xFFFF) imuFails++;
     if (imuFails >= cfg::IMU_MAX_FAILS && millis() - lastImuRetryMs > 500) {
       lastImuRetryMs = millis();
@@ -128,18 +130,18 @@ void sampleAndDetect() {
     return;
   }
   imuFails = 0;
- 
+
   accelFilt.x = filtX.update(lastRaw.accelG.x);
   accelFilt.y = filtY.update(lastRaw.accelG.y);
   accelFilt.z = filtZ.update(lastRaw.accelG.z);
- 
+
   uint32_t nowMs = millis();
   bool hit = detector.update(accelFilt, nowMs);
-  if (hit) airbag.deploy();  // 1º: atuador. Todo o resto vem depois.
- 
+  if (hit) airbag.deploy();
+
   lastSampleMs = nowMs;
-  Net::pushSample(detector.forwardG());  // curva do gráfico (500 Hz)
- 
+  Net::pushSample(detector.forwardG());
+
   if (hit) {
     TelemetrySnapshot s = makeSnapshot();
     Net::publishCollision(s);
@@ -147,13 +149,13 @@ void sampleAndDetect() {
                   s.thresholdG, (unsigned long)s.collisionMs);
   }
 }
- 
+
 void handleCommands() {
-  // Comandos vindos do dashboard (WebSocket/HTTP)
+  // Comandos do dashboard (WebSocket/HTTP)
   Command c;
   while (Net::popCommand(c)) execute(c);
- 
-  // Comandos pelo Monitor Serial (mesmo parser da rede)
+
+  // Comandos pelo Monitor Serial: rearm | calibrate | threshold=3.5 | axis=x | invert=1
   while (Serial.available()) {
     String line = Serial.readStringUntil('\n');
     line.trim();
@@ -162,48 +164,51 @@ void handleCommands() {
     if (Net::parseCommand(line, c, err)) execute(c);
     else Serial.println("[CMD] " + err);
   }
- 
-  // Botão BOOT (ativo em LOW) também rearma
-  static uint32_t lastPress = 0;
-  if (digitalRead(cfg::PIN_REARM_BUTTON) == LOW && millis() - lastPress > 500) {
-    lastPress = millis();
-    rearm();
+
+  // Botão BOOT: toque curto = rearmar | segurar 1,5 s = tara (feita 0,8 s após soltar)
+  static uint32_t pressedAt = 0, tareAt = 0;
+  static bool longDone = false;
+  if (digitalRead(cfg::PIN_REARM_BUTTON) == LOW) {
+    if (pressedAt == 0) { pressedAt = millis(); longDone = false; }
+    else if (!longDone && millis() - pressedAt > 1500) { longDone = true; Serial.println("[CAL] solte o botao..."); }
+  } else if (pressedAt) {
+    if (longDone) tareAt = millis() + 800;
+    else if (millis() - pressedAt > 50) rearm();
+    pressedAt = 0;
   }
+  if (tareAt && millis() >= tareAt) { tareAt = 0; calibrate(); }
 }
- 
+
 void sendTelemetry() {
   uint32_t now = millis();
- 
+
   if (now - lastBatchMs >= cfg::BATCH_PERIOD_MS) {
     lastBatchMs = now;
     Net::flushSamples(lastSampleMs, cfg::SAMPLE_PERIOD_US);
   }
- 
+
   if (now - lastTelemetryMs >= cfg::TELEMETRY_PERIOD_MS) {
     lastTelemetryMs = now;
     TelemetrySnapshot s = makeSnapshot();
     Net::publishTelemetry(s);
- 
+
     if (cfg::SERIAL_PLOT)
       Serial.printf("forward:%.3f threshold:%.2f peak:%.3f\n", s.forwardG, -s.thresholdG, s.peakG);
   }
 }
- 
+
 // ---------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
-  Serial.setTimeout(20);  // readStringUntil não pode travar o loop de amostragem
+  Serial.setTimeout(20);
   delay(200);
   Serial.println("\n=== A3 | Airbag ESP32 ===");
- 
+
   pinMode(cfg::PIN_REARM_BUTTON, INPUT_PULLUP);
- 
-  // Servo primeiro, para ele já ficar na posição de repouso
+
   airbag.begin(cfg::PIN_SERVO, cfg::SERVO_REST_DEG, cfg::SERVO_DEPLOY_DEG,
                cfg::SERVO_MIN_US, cfg::SERVO_MAX_US);
- 
-  // Sem sensor não há segurança, mas em vez de travar para sempre fica tentando:
-  // basta ligar o fio que ele segue sozinho.
+
   while (!imu.begin(cfg::PIN_SDA, cfg::PIN_SCL)) {
     Serial.println("[IMU] ERRO: MPU-6050 nao responde. Confira SDA/SCL/VCC/GND.");
     delay(1000);
@@ -211,7 +216,7 @@ void setup() {
   uint8_t id = imu.whoAmI();
   Serial.printf("[IMU] WHO_AM_I = 0x%02X %s\n", id,
                 id == 0x68 ? "(OK)" : "(clone/variante — deve funcionar, confira as leituras)");
- 
+
   prefs.begin("airbag", false);
   float thr = prefs.getFloat("thr", cfg::DEFAULT_THRESHOLD_G);
   thr = constrain(thr, cfg::MIN_THRESHOLD_G, cfg::MAX_THRESHOLD_G);
@@ -220,31 +225,36 @@ void setup() {
                       prefs.getBool("inv", cfg::FORWARD_INVERT));
   Serial.printf("[CFG] threshold = %.2f g | eixo = %c%s\n", thr, "XYZ"[detector.axis()],
                 detector.invert() ? " invertido" : "");
- 
+
+  // Tara no boot, ANTES de ligar o Wi-Fi. Tenta por até CAL_BOOT_WAIT_MS.
   bool calOk = false;
-  for (int i = 0; i < 3 && !calOk; i++) {
+  uint32_t calStart = millis();
+  while (!calOk && millis() - calStart < cfg::CAL_BOOT_WAIT_MS) {
     calOk = calibrate();
-    if (!calOk) delay(500);
+    if (!calOk) delay(300);
   }
-  if (!calOk) Serial.println("[CAL] AVISO: usando gravidade padrao (0,0,1). Envie 'calibrate' com o carrinho parado.");
-  detector.rearm(millis());  // a carência começa DEPOIS da calibração
- 
-  Net::begin();  // sem rede o airbag continua funcionando, só sem telemetria
- 
+  if (!calOk)
+    Serial.println("[CAL] AVISO: usando gravidade padrao (0,0,1) - o G NAO estara zerado. Envie 'calibrate' com o carrinho parado.");
+  detector.rearm(millis());
+
+  if (cfg::NET_ENABLED) {
+    Net::begin();
+  } else {
+    Serial.println("[NET] DESATIVADA (modo diagnostico): so Serial.");
+  }
+
   nextSampleUs = micros();
 }
- 
+
 void loop() {
-  // Amostragem com período fixo (não usa delay: o loop nunca trava)
   uint32_t nowUs = micros();
   if ((int32_t)(nowUs - nextSampleUs) >= 0) {
     nextSampleUs += cfg::SAMPLE_PERIOD_US;
-    // Se ficamos muito atrasados (ex.: calibração), ressincroniza em vez de "correr atrás"
     if ((int32_t)(nowUs - nextSampleUs) > (int32_t)(10 * cfg::SAMPLE_PERIOD_US))
       nextSampleUs = nowUs + cfg::SAMPLE_PERIOD_US;
     sampleAndDetect();
   }
- 
+
   handleCommands();
   sendTelemetry();
   Net::loop();

@@ -1,44 +1,39 @@
-////////////////////////////////////////////////////////////////
-//  ARQUIVO: Net.cpp (WI-FI + WEBSOCKET + HTTP)
-////////////////////////////////////////////////////////////////
- 
 #include "Net.h"
 #include "config.h"
- 
+
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <ESPmDNS.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
- 
+
 namespace {
- 
+
 AsyncWebServer server(cfg::HTTP_PORT);
 AsyncWebSocket ws("/ws");
- 
+
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 TelemetrySnapshot snapshot = {};
- 
-// Fila de comandos: produtor = tarefas de rede (outro core), consumidor = loop()
+
 constexpr size_t CMD_QUEUE = 8;
 Command cmdQ[CMD_QUEUE];
 size_t cmdHead = 0, cmdCount = 0;
- 
-// Amostras do gráfico: só o loop() mexe aqui, então não precisa de lock
+
 float sampleBuf[cfg::BATCH_MAX];
 size_t sampleN = 0;
- 
+
 constexpr size_t JSON_BUF = 448;
 constexpr size_t BATCH_BUF = 64 + cfg::BATCH_MAX * 9 + 8;
- 
+
 const char TEST_PAGE[] = R"rawliteral(<!DOCTYPE html><html><body><h1>ESP32 Airbag Online</h1></body></html>)rawliteral";
- 
+
 TelemetrySnapshot readSnapshot() {
   portENTER_CRITICAL(&mux);
   TelemetrySnapshot s = snapshot;
   portEXIT_CRITICAL(&mux);
   return s;
 }
- 
+
 size_t buildJson(const TelemetrySnapshot &s, const char *type, char *buf, size_t n) {
   int len = snprintf(buf, n,
       "{\"type\":\"%s\",\"t\":%lu,"
@@ -56,7 +51,7 @@ size_t buildJson(const TelemetrySnapshot &s, const char *type, char *buf, size_t
   if (len < 0) return 0;
   return (size_t)len < n ? (size_t)len : n - 1;
 }
- 
+
 bool pushCommand(const Command &c) {
   bool ok = false;
   portENTER_CRITICAL(&mux);
@@ -68,7 +63,7 @@ bool pushCommand(const Command &c) {
   portEXIT_CRITICAL(&mux);
   return ok;
 }
- 
+
 bool enqueueCommand(const String &text, String &err) {
   Command c;
   if (!Net::parseCommand(text, c, err)) return false;
@@ -78,13 +73,13 @@ bool enqueueCommand(const String &text, String &err) {
   }
   return true;
 }
- 
+
 String errorJson(String msg) {
-  msg.replace("\"", "'");  // evita quebrar o JSON com o texto recebido
+  msg.replace("\"", "'");
   msg.replace("\\", "/");
   return "{\"type\":\"error\",\"message\":\"" + msg + "\"}";
 }
- 
+
 void onWsEvent(AsyncWebSocket *, AsyncWebSocketClient *client, AwsEventType type,
                void *arg, uint8_t *data, size_t len) {
   switch (type) {
@@ -102,7 +97,7 @@ void onWsEvent(AsyncWebSocket *, AsyncWebSocketClient *client, AwsEventType type
     case WS_EVT_DATA: {
       AwsFrameInfo *info = static_cast<AwsFrameInfo *>(arg);
       if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT &&
-          len <= 48) {  // comandos são curtos; ignora lixo grande
+          len <= 48) {
         String cmd;
         cmd.reserve(len);
         for (size_t i = 0; i < len; i++) cmd += (char)data[i];
@@ -115,7 +110,7 @@ void onWsEvent(AsyncWebSocket *, AsyncWebSocketClient *client, AwsEventType type
       break;
   }
 }
- 
+
 void sendCommandResult(AsyncWebServerRequest *req, const String &cmd) {
   String err;
   if (enqueueCommand(cmd, err))
@@ -123,21 +118,29 @@ void sendCommandResult(AsyncWebServerRequest *req, const String &cmd) {
   else
     req->send(400, "application/json", errorJson(err));
 }
- 
+
+// Unidade do ESP-IDF: 0,25 dBm
+void applyTxPower() {
+  esp_wifi_set_max_tx_power((int8_t)(cfg::WIFI_TX_POWER_DBM * 4));
+  Serial.printf("[WiFi] potencia de TX limitada a %d dBm\n", cfg::WIFI_TX_POWER_DBM);
+}
+
 bool startWifi() {
   if (cfg::WIFI_AP_MODE) {
     WiFi.mode(WIFI_AP);
-    WiFi.setSleep(false);  // menos latência
+    WiFi.setSleep(false);
     if (!WiFi.softAP(cfg::AP_SSID, cfg::AP_PASS, cfg::AP_CHANNEL, 0, cfg::AP_MAX_CONN)) return false;
+    applyTxPower();
     Serial.printf("[WiFi] AP \"%s\" ativo. Dashboard conectar em: ws://%s/ws\n", cfg::AP_SSID,
                   WiFi.softAPIP().toString().c_str());
     return true;
   }
- 
+
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.begin(cfg::STA_SSID, cfg::STA_PASS);
+  applyTxPower();
   Serial.printf("[WiFi] conectando em \"%s\"", cfg::STA_SSID);
   uint32_t t0 = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
@@ -146,20 +149,20 @@ bool startWifi() {
   }
   Serial.println();
   if (WiFi.status() != WL_CONNECTED) return false;
- 
+
   if (MDNS.begin(cfg::MDNS_NAME)) MDNS.addService("http", "tcp", cfg::HTTP_PORT);
   Serial.printf("[WiFi] conectado. Dashboard: ws://%s/ws\n", WiFi.localIP().toString().c_str());
   return true;
 }
- 
+
 }  // namespace
- 
+
 namespace Net {
- 
+
 bool parseCommand(String cmd, Command &out, String &err) {
   cmd.trim();
   cmd.toLowerCase();
- 
+
   if (cmd == "rearm" || cmd == "reset") {
     out = Command{CmdType::REARM, 0};
     return true;
@@ -194,7 +197,7 @@ bool parseCommand(String cmd, Command &out, String &err) {
   err = "comando desconhecido: " + cmd;
   return false;
 }
- 
+
 bool popCommand(Command &out) {
   bool ok = false;
   portENTER_CRITICAL(&mux);
@@ -207,38 +210,38 @@ bool popCommand(Command &out) {
   portEXIT_CRITICAL(&mux);
   return ok;
 }
- 
+
 bool begin() {
   if (!startWifi()) {
     Serial.println("[WiFi] FALHA ao iniciar a rede");
     return false;
   }
- 
+
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");
- 
+
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
- 
+
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
     req->send(200, "text/html", TEST_PAGE);
   });
- 
+
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *req) {
     char buf[JSON_BUF];
     buildJson(readSnapshot(), "status", buf, sizeof buf);
     req->send(200, "application/json", buf);
   });
- 
+
   server.on("/api/rearm", HTTP_POST, [](AsyncWebServerRequest *req) {
     sendCommandResult(req, "rearm");
   });
- 
+
   server.on("/api/calibrate", HTTP_POST, [](AsyncWebServerRequest *req) {
     sendCommandResult(req, "calibrate");
   });
- 
+
   server.on("/api/threshold", HTTP_POST, [](AsyncWebServerRequest *req) {
     const AsyncWebParameter *p = nullptr;
     if (req->hasParam("value")) p = req->getParam("value");
@@ -249,16 +252,16 @@ bool begin() {
     }
     sendCommandResult(req, "threshold=" + p->value());
   });
- 
+
   server.onNotFound([](AsyncWebServerRequest *req) {
     if (req->method() == HTTP_OPTIONS) req->send(204);
     else req->send(404, "application/json", errorJson("rota inexistente"));
   });
- 
+
   server.begin();
   return true;
 }
- 
+
 void loop() {
   static uint32_t lastCleanup = 0;
   if (millis() - lastCleanup > 1000) {
@@ -266,44 +269,52 @@ void loop() {
     ws.cleanupClients();
   }
 }
- 
+
 void publishTelemetry(const TelemetrySnapshot &s) {
   portENTER_CRITICAL(&mux);
   snapshot = s;
   portEXIT_CRITICAL(&mux);
- 
+
   if (ws.count() == 0 || !ws.availableForWriteAll()) return;
   char buf[JSON_BUF];
   buildJson(s, "telemetry", buf, sizeof buf);
   ws.textAll(buf);
 }
- 
+
 void publishCollision(const TelemetrySnapshot &s) {
   portENTER_CRITICAL(&mux);
   snapshot = s;
   portEXIT_CRITICAL(&mux);
- 
+
   char buf[JSON_BUF];
   buildJson(s, "collision", buf, sizeof buf);
   ws.textAll(buf);
 }
- 
+
+void publishCalibration(bool ok, float mag, float stdG) {
+  if (ws.count() == 0) return;
+  char buf[96];
+  snprintf(buf, sizeof buf, "{\"type\":\"cal\",\"ok\":%d,\"mag\":%.3f,\"std\":%.3f}",
+           ok ? 1 : 0, mag, stdG);
+  ws.textAll(buf);
+}
+
 void pushSample(float forwardG) {
-  if (sampleN == cfg::BATCH_MAX) {  // buffer cheio (rede lenta): descarta a mais antiga
+  if (sampleN == cfg::BATCH_MAX) {
     memmove(sampleBuf, sampleBuf + 1, (cfg::BATCH_MAX - 1) * sizeof(float));
     sampleN--;
   }
   sampleBuf[sampleN++] = forwardG;
 }
- 
+
 void flushSamples(uint32_t tLastMs, uint32_t periodUs) {
   if (sampleN == 0) return;
-  if (ws.count() == 0) {  // ninguém ouvindo: não acumula
+  if (ws.count() == 0) {
     sampleN = 0;
     return;
   }
-  if (!ws.availableForWriteAll()) return;  // rede ocupada: mantém e tenta no próximo ciclo
- 
+  if (!ws.availableForWriteAll()) return;
+
   char buf[BATCH_BUF];
   int n = snprintf(buf, sizeof buf, "{\"type\":\"batch\",\"t\":%lu,\"dt_us\":%lu,\"a\":[",
                    (unsigned long)tLastMs, (unsigned long)periodUs);
@@ -313,5 +324,7 @@ void flushSamples(uint32_t tLastMs, uint32_t periodUs) {
   ws.textAll(buf);
   sampleN = 0;
 }
- 
+
+void clearSamples() { sampleN = 0; }
+
 }  // namespace Net

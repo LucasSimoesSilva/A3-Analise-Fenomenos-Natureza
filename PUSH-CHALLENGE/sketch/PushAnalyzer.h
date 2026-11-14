@@ -41,9 +41,9 @@ class PushAnalyzer {
   float peak_ = 0;
   float impulse_ = 0;
 
-  bool below_ = false;         // força está abaixo do limite de fim?
+  bool below_ = false;
   uint32_t belowSinceUs_ = 0;
-  float impulseAtBelow_ = 0;   // impulso no instante em que caiu abaixo
+  float impulseAtBelow_ = 0;
 
   uint16_t nextId_ = 1;
   float recordPeakN_ = 0;

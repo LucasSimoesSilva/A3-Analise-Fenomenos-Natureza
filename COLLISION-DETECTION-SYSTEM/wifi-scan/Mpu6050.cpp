@@ -13,7 +13,7 @@ constexpr uint8_t REG_WHO_AM_I     = 0x75;
 // Sensibilidades conforme as escalas escolhidas em begin()
 constexpr float ACCEL_LSB_PER_G  = 2048.0f;  // AFS_SEL=3 -> ±16 g
 constexpr float GYRO_LSB_PER_DPS = 65.5f;    // FS_SEL=1  -> ±500 °/s
-}  // namespace
+}
 
 Mpu6050::Mpu6050(TwoWire &wire, uint8_t addr) : wire_(wire), addr_(addr) {}
 

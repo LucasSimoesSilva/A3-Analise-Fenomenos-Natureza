@@ -7,7 +7,7 @@ class MovingAverage {
 
  public:
   float update(float x) {
-    sum_ += x - buf_[idx_];  // entra o novo, sai o mais antigo
+    sum_ += x - buf_[idx_];
     buf_[idx_] = x;
     idx_ = (idx_ + 1) % N;
     if (count_ < N) count_++;

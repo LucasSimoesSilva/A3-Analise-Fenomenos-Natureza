@@ -6,7 +6,6 @@ enum class AirbagState : uint8_t { ARMED, DEPLOYED };
  
 // Detecta DESACELERAÇÃO BRUSCA no eixo de movimento do carrinho.
 //  - arrancada / aceleração (valor positivo no eixo) nunca dispara;
-//  - choque lateral ou vertical não dispara (só o eixo de movimento conta);
 //  - a gravidade é descontada com a referência g0 medida na calibração.
 class CollisionDetector {
  public:

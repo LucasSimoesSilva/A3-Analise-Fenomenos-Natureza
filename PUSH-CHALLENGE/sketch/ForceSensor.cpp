@@ -10,7 +10,7 @@ struct CalData {
   long offset;
   float countsPerKg;
 };
-}  // namespace
+}
 
 void ForceSensor::begin(uint8_t doutPin, uint8_t sckPin) {
   hx_.begin(doutPin, sckPin);  // ganho 128, canal A (padrão)
@@ -27,7 +27,7 @@ bool ForceSensor::read(float &newtons) {
 bool ForceSensor::averageRaw(uint8_t samples, long &out) {
   long long sum = 0;
   for (uint8_t i = 0; i < samples; i++) {
-    if (!hx_.wait_ready_timeout(500)) return false;  // HX711 desconectado?
+    if (!hx_.wait_ready_timeout(500)) return false;
     sum += hx_.read();
   }
   out = (long)(sum / samples);
@@ -46,8 +46,8 @@ bool ForceSensor::calibrate(float knownKg, uint8_t samples) {
   long avg;
   if (!averageRaw(samples, avg)) return false;
   float counts = (float)(avg - offset_);
-  if (fabs(counts) < 100) return false;  // quase nada mudou: peso não está em cima?
-  countsPerKg_ = counts / knownKg;       // se der negativo, a célula está invertida (ok)
+  if (fabs(counts) < 100) return false;
+  countsPerKg_ = counts / knownKg;
   return true;
 }
 

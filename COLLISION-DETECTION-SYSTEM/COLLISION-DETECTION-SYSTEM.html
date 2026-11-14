@@ -68,8 +68,8 @@
         <label class="flex items-center gap-2 cursor-pointer mr-2">
           <input type="checkbox" id="simToggle" checked onchange="setSim(this.checked)" class="sr-only peer">
           <div class="relative w-11 h-6 bg-slate-700 rounded-full transition peer-checked:bg-sky-600
-              after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5
-              after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
+                    after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5
+                    after:bg-white after:rounded-full after:transition-all peer-checked:after:translate-x-5"></div>
           <span class="text-xs font-medium text-slate-300">Modo Simulação</span>
         </label>
         <span class="text-[11px] text-slate-500 uppercase">Simular:</span>
@@ -96,21 +96,26 @@
         <button id="btnReset" onclick="resetSession()"
           class="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm rounded-lg">↺ Zerar
           sessão</button>
+        <button id="btnRearm" onclick="rearmAirbag()"
+          class="px-4 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/30 text-sm rounded-lg">⟳
+          Rearmar airbag</button>
+        <button id="btnTare" onclick="tare()"
+          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm rounded-lg">⌖ Tara (zerar
+          G)</button>
         <span class="ml-3 font-mono text-sm text-slate-300">t = <span id="timer">0.00</span> s</span>
       </div>
       <div class="flex flex-wrap items-end gap-3 text-xs text-slate-400">
-        <label>Limiar (G)<input id="inThr" type="number" value="3" step="0.5" min="0.5" onchange="onConfig()"
+        <label>Limiar (G)<input id="inThr" type="number" value="3" step="0.5" min="0.5" max="15" onchange="onConfig()"
             class="block w-20 mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-slate-200"></label>
         <label>Eixo de movimento
-          <select id="inAxis"
-            class="block mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-slate-200"
-            onchange="onOrient()">
+          <select id="inAxis" onchange="onOrient()"
+            class="block mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-slate-200">
             <option value="x">X</option>
             <option value="y">Y</option>
             <option value="z">Z</option>
           </select></label>
         <label class="flex items-center gap-1 pb-1.5 cursor-pointer"><input id="inInvert" type="checkbox"
-            class="accent-sky-500" onchange="onOrient()"> Inverter sentido</label>
+            onchange="onOrient()" class="accent-sky-500"> Inverter sentido</label>
         <label>Massa (kg)<input id="inMass" type="number" value="0.2" step="0.05" min="0.05" onchange="updateMetrics()"
             class="block w-20 mt-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-slate-200"></label>
       </div>
@@ -270,21 +275,22 @@
   <script>
     /* ===================================================================
        CONCEITO GERAL
-       1. O ESP32 envia amostras do acelerômetro (ax, ay, az, em G) via WebSocket.
-          Formato: {"ax":0.1,"ay":0.0,"az":1.0}  (opcional: "t" = millis() do ESP32).
-       2. O painel só olha o eixo no sentido de movimento do carrinho. Desaceleração
-          = aceleração NEGATIVA nesse eixo. Arrancar (positivo) nunca dispara nada.
+       1. O ESP32 envia por WebSocket (ws://IP/ws) quatro tipos de mensagem:
+            telemetry  -> X/Y/Z, estado do airbag, limiar, eixo (10 Hz)
+            batch      -> amostras do eixo de movimento a 500 Hz (curva do gráfico)
+            collision  -> evento no instante em que o firmware dispara o airbag
+            cal        -> resultado da tara (ok / rejeitada)
+       2. Quem DECIDE a colisão é o firmware. No modo simulação o próprio front decide.
        3. Sessão: INATIVA -> GRAVANDO -> (colisão) PÓS-IMPACTO -> FINALIZADA.
-          Após a colisão ainda gravamos POST_S segundos para o gráfico mostrar a
-          curva completa do impacto; depois congela e calcula as métricas.
-       4. Física: F = m·a no pico; impulso J = ∫F dt integrado nas amostras reais;
-          velocidade estimada v = J/m (o carrinho vai a ~0, então Δv ≈ v).
-       5. Isto é uma VISUALIZAÇÃO. O disparo real do airbag deve ser decidido no firmware.
+          Após a colisão ainda gravamos POST_S segundos para mostrar a curva completa; depois congela.
+       4. Física: F = m·a no pico; impulso J = ∫F dt nas amostras reais; v = J/m.
+       5. Tara: o firmware mede a gravidade de referência com o carrinho parado; o G passa a ser 0 em repouso.
+       Comandos que o front envia: rearm | calibrate | threshold=X | axis=x|y|z | invert=0|1
        =================================================================== */
     const G = 9.80665;
-    const POST_S = 1.5;      // segundos gravados após o disparo
-    const ARM_S = 0.5;       // ignora os primeiros 0,5 s da sessão (assentamento do sensor)
-    const DEBOUNCE = 2;      // amostras seguidas acima do limiar p/ confirmar (filtra ruído)
+    const POST_S = 1.5;      // segundos gravados após a colisão
+    const ARM_S = 0.5;       // (simulação) ignora os primeiros 0,5 s da sessão
+    const DEBOUNCE = 2;      // (simulação) amostras seguidas acima do limiar
     const WINDOW_S = 10;     // janela visível durante a gravação
     const MAX_S = 60;        // duração máxima de uma sessão
     const IMPACT_LEVEL = 0.5;// G mínimo para contar como "dentro do impacto" (duração/impulso)
@@ -292,11 +298,12 @@
     let state = 'idle';      // idle | running | post | finished
     let fired = false, t0 = 0, devT0 = null, tTrig = 0, over = 0, peak = 0;
     let ws = null, simOn = true, simTimer = null, simQueue = [];
-    let history = [], hid = 1, dirty = false, lastT = 0, result = null;
+    let history = [], hid = 1, dirty = false, lastT = 0, result = null, airbagOn = null;
 
     const $ = id => document.getElementById(id);
     const thr = () => parseFloat($('inThr').value) || 3;
     const mass = () => parseFloat($('inMass').value) || 0.2;
+    const fmt = (v, d = 2) => (Math.abs(v) < 0.05 ? 0 : v).toFixed(d);   // zona morta: evita "-0.00" piscando
 
     /* ---------- Gráfico (eixo X = tempo em segundos) ---------- */
     const dsMain = { label: 'Eixo', data: [], borderColor: '#38BDF8', backgroundColor: 'rgba(56,189,248,.1)', borderWidth: 2, pointRadius: 0, tension: 0.2 };
@@ -332,13 +339,11 @@
         chart.options.scales.x.min = 0;
         chart.options.scales.x.max = Math.max(1, Math.ceil(lastT * 2) / 2);
       } else { chart.options.scales.x.min = 0; chart.options.scales.x.max = WINDOW_S; }
-      // eixo Y se adapta ao pico para sempre caber
       chart.options.scales.y.min = Math.min(-6, -Math.ceil(peak + 1));
       dsThr.data = [{ x: -1, y: -thr() }, { x: MAX_S + 1, y: -thr() }];
       chart.update('none');
       $('timer').innerText = lastT.toFixed(2);
     }
-    // Redesenha no máximo uma vez por frame, mesmo chegando 100 amostras/s
     (function loop() { if (dirty) { dirty = false; drawChart(); } requestAnimationFrame(loop); })();
 
     /* ---------- Log ---------- */
@@ -362,20 +367,49 @@
       $('statusText').innerText = text; $('statusDesc').innerText = desc;
     }
     function setAirbag(on) {
+      if (on === airbagOn) return;
+      airbagOn = on;
       $('airbagCard').className = 'rounded-xl p-5 border ' + (on ? 'bg-red-950/30 border-red-500/50' : 'bg-brand-card border-brand-border');
       $('airbagDot').className = 'w-10 h-10 rounded-full border-2 ' + (on ? 'border-red-500 bg-red-500' : 'border-slate-700 bg-slate-800/50');
       $('airbagText').innerText = on ? 'DISPARADO' : 'INTACTO';
       $('airbagText').className = 'font-bold text-sm block ' + (on ? 'text-red-400' : 'text-slate-400');
     }
     function setButtons() {
+      const busy = state === 'running' || state === 'post';
       $('btnStart').disabled = state !== 'idle';
       $('btnStop').disabled = state !== 'running';
-      $('btnReset').disabled = state === 'idle' || state === 'running' || state === 'post';
-      $('inAxis').disabled = $('inInvert').disabled = state === 'running' || state === 'post';
+      $('btnReset').disabled = state === 'idle' || busy;
+      $('btnTare').disabled = $('btnRearm').disabled = busy;
+      $('inAxis').disabled = $('inInvert').disabled = busy;
     }
     function setConn(tone, text) {
       $('connBadge').className = 'px-3 py-1.5 rounded-full text-xs font-semibold border ' + TONE[tone][0];
       $('connBadge').innerText = text;
+    }
+
+    /* ---------- Comandos para o ESP32 ---------- */
+    function sendCmd(c) {
+      if (ws && ws.readyState === WebSocket.OPEN) { ws.send(c); log('[CMD] ' + c); }
+      else log('[CMD] sem conexão com o ESP32', 'warn');
+    }
+    function refreshThr() { $('airbagThr').innerText = `Limiar: > ${thr().toFixed(1)} G`; dirty = true; }
+    function onConfig() { refreshThr(); if (!simOn) sendCmd('threshold=' + thr()); }
+    function onOrient() {
+      if (simOn) return;
+      sendCmd('axis=' + $('inAxis').value); sendCmd('invert=' + ($('inInvert').checked ? 1 : 0));
+    }
+    function tare() {   // zera o G: o firmware mede a gravidade com o carrinho parado
+      if (simOn) return log('[SIM] Na simulação o repouso já é 0 G.', 'warn');
+      sendCmd('calibrate'); log('Tara pedida: mantenha o carrinho parado (~1 s).', 'warn');
+    }
+    function rearmAirbag() {
+      if (simOn) { setAirbag(false); return log('[SIM] Airbag rearmado.'); }
+      sendCmd('rearm');   // o card do airbag acompanha o estado real pela telemetria
+    }
+    function onCal(d) {
+      log(d.ok ? `[CAL] Tara concluída (ruído ${(+d.std).toFixed(3)} G).`
+        : `[CAL] Tara rejeitada (ruído ${(+d.std).toFixed(3)} G, |g| ${(+d.mag).toFixed(2)}): o carrinho está parado?`,
+        d.ok ? 'success' : 'error');
     }
 
     /* ---------- Sessão ---------- */
@@ -383,9 +417,8 @@
       state = 'running'; t0 = performance.now(); devT0 = null; lastT = 0; over = 0; peak = 0; fired = false; result = null;
       dsMain.data = []; dsPeak.data = [];
       setStatus('emerald', 'GRAVANDO', 'Aguardando desaceleração brusca...');
-      setButtons(); updateMetrics(); dirty = true;
-      if (!simOn) sendCmd('rearm');
-      log('Sessão iniciada.', 'success');
+      setButtons(); updateMetrics(); dirty = true; log('Sessão iniciada.', 'success');
+      if (!simOn) sendCmd('rearm');   // destrava o firmware e recolhe o airbag
     }
     function stopSession() {   // encerramento manual, sem colisão
       state = 'finished'; setStatus('amber', 'SESSÃO ENCERRADA', 'Encerrada manualmente, sem colisão.');
@@ -394,13 +427,12 @@
     function resetSession() {  // limpa gráfico e métricas; o histórico permanece
       state = 'idle'; fired = false; peak = 0; lastT = 0; over = 0; result = null;
       dsMain.data = []; dsPeak.data = [];
-      setAirbag(false); setStatus('slate', 'AGUARDANDO', 'Clique em "Iniciar sessão" para gravar.');
+      if (simOn) setAirbag(false);   // no modo real o card segue o firmware (use "Rearmar airbag")
+      setStatus('slate', 'AGUARDANDO', 'Clique em "Iniciar sessão" para gravar.');
       setButtons(); updateMetrics(); dirty = true; log('Sessão zerada (histórico mantido).', 'info');
     }
 
-    /* ---------- Processamento de cada amostra ---------- */
-    const fmt = (v, d = 2) => (Math.abs(v) < 0.05 ? 0 : v).toFixed(d);   // zona morta: acaba com o "-0.00" piscando
-
+    /* ---------- Processamento de amostras ---------- */
     function showLive(af) {
       $('curG').innerText = fmt(af);
       $('curDir').innerText = af < -0.15 ? 'desacelerando' : af > 0.15 ? 'acelerando' : 'constante / parado';
@@ -409,7 +441,7 @@
       $('valX').innerText = 'X: ' + fmt(ax, 1); $('valY').innerText = 'Y: ' + fmt(ay, 1); $('valZ').innerText = 'Z: ' + fmt(az, 1);
     }
 
-    // SIMULAÇÃO: recebe eixos crus, calcula o eixo de movimento e o front detecta a colisão
+    // SIMULAÇÃO: recebe os eixos crus, calcula o eixo de movimento e o front detecta a colisão
     function onSample(ax, ay, az) {
       const af = ($('inInvert').checked ? -1 : 1) * { x: ax, y: ay, z: az }[$('inAxis').value];
       showXYZ(ax, ay, az); showLive(af);
@@ -421,7 +453,7 @@
       if (state !== 'running' && state !== 'post') return;
       lastT = t;
       dsMain.data.push({ x: t, y: af });
-      const decel = -af;
+      const decel = -af;                         // positivo = freando
       if (decel > peak) { peak = decel; dsPeak.data = [{ x: t, y: af }]; updateMetrics(); }
       if (state === 'running') {
         if (detect) {
@@ -433,56 +465,46 @@
       dirty = true;
     }
 
-    // ---- MODO REAL: mensagens do ESP32 ----
-    function onBatch(d) {                      // ~25 amostras a 500 Hz por pacote
+    /* ---------- MODO REAL: mensagens do ESP32 ---------- */
+    function onBatch(d) {                        // ~25 amostras a 500 Hz por pacote
       const n = d.a.length, dt = d.dt_us / 1000;
       for (let i = 0; i < n; i++) {
-        const tDev = d.t - (n - 1 - i) * dt;   // relógio do ESP32 (ms)
+        const tDev = d.t - (n - 1 - i) * dt;     // relógio do ESP32 (ms)
         if (i === n - 1) showLive(d.a[i]);
         if (state !== 'running' && state !== 'post') continue;
         if (devT0 === null) devT0 = tDev;
         feed((tDev - devT0) / 1000, d.a[i], false);
       }
     }
-    function onFwCollision(tMs) {              // ignora colisão antiga / fora de sessão
+    function onFwCollision(tMs) {                // ignora colisão antiga / fora de sessão
       if (state !== 'running' || devT0 === null || tMs < devT0) return;
       fire((tMs - devT0) / 1000);
     }
     function onTelemetry(d) {
       showXYZ(d.ax, d.ay, d.az);
       if (document.activeElement !== $('inThr') && +$('inThr').value !== +d.threshold) {
-        $('inThr').value = (+d.threshold).toFixed(1); refreshThr();   // o firmware é a fonte da verdade
+        $('inThr').value = (+d.threshold).toFixed(1); refreshThr();
       }
       $('inAxis').value = d.axis; $('inInvert').checked = !!d.invert;
+      setAirbag(d.state === 'DEPLOYED');                              // estado físico real do airbag
       if (d.state === 'DEPLOYED') onFwCollision(d.collision_t);       // garante, se o evento "collision" se perder
-    }
-
-    function sendCmd(c) {
-      if (ws && ws.readyState === WebSocket.OPEN) { ws.send(c); log('[CMD] ' + c); }
-      else log('[CMD] sem conexão com o ESP32', 'warn');
-    }
-    function refreshThr() { $('airbagThr').innerText = `Limiar: > ${thr().toFixed(1)} G`; dirty = true; }
-    function onConfig() { refreshThr(); if (!simOn) sendCmd('threshold=' + thr()); }
-    function onOrient() {
-      if (simOn) return;
-      sendCmd('axis=' + $('inAxis').value); sendCmd('invert=' + ($('inInvert').checked ? 1 : 0));
     }
 
     function fire(t) {
       state = 'post'; fired = true; tTrig = t;
       setAirbag(true); setStatus('red', 'COLISÃO DETECTADA', 'Capturando o final do impacto...');
-      setButtons(); log(`💥 Colisão! Desaceleração ≥ ${thr().toFixed(1)} G. Airbag disparado.`, 'error');
+      setButtons(); log('💥 Colisão detectada. Airbag disparado.', 'error');
     }
 
     function finish() {
       state = 'finished';
-      // localiza o trecho contínuo em torno do pico com desaceleração > IMPACT_LEVEL
+      // trecho contínuo em torno do pico com desaceleração > IMPACT_LEVEL
       const d = dsMain.data, m = mass();
       let ip = 0; d.forEach((p, i) => { if (-p.y > -d[ip].y) ip = i; });
       let a = ip, b = ip;
       while (a > 0 && -d[a - 1].y >= IMPACT_LEVEL) a--;
       while (b < d.length - 1 && -d[b + 1].y >= IMPACT_LEVEL) b++;
-      let imp = 0;                                // integral trapezoidal de F·dt
+      let imp = 0;
       for (let i = a; i < b; i++) imp += m * G * (-(d[i].y + d[i + 1].y) / 2) * (d[i + 1].x - d[i].x);
       result = { dur: (d[b].x - d[a].x) * 1000, imp, vel: imp / m };
       updateMetrics();
@@ -520,9 +542,7 @@
       a.download = `colisoes_${Date.now()}.csv`; a.click(); log('CSV exportado.', 'success');
     }
 
-    /* ---------- Simulação (100 Hz) ----------
-       Gera ruído de fundo + perfis: arrancada (+, não deve disparar),
-       freada (-0,6 G, suave, não deve disparar) e batida (-5 G, curta, dispara). */
+    /* ---------- Simulação (100 Hz) ---------- */
     const PROFILES = {
       arrancada: () => Array.from({ length: 60 }, (_, i) => 0.8 * Math.sin(Math.PI * i / 60)),
       freada: () => Array.from({ length: 80 }, (_, i) => -0.6 * Math.sin(Math.PI * i / 80)),
@@ -538,9 +558,8 @@
     function startSim() {
       clearInterval(simTimer);
       simTimer = setInterval(() => {
-        const ev = simQueue.length ? simQueue.shift() : 0;   // aceleração do evento no eixo X
+        const ev = simQueue.length ? simQueue.shift() : 0;
         const n = () => (Math.random() - 0.5) * 0.02;
-        // se o eixo escolhido não for X, o evento é mapeado para ele
         const v = { x: n(), y: n(), z: 1 + n() };
         v[$('inAxis').value] += ($('inInvert').checked ? -1 : 1) * ev;
         onSample(v.x, v.y, v.z);
@@ -568,6 +587,7 @@
           if (d.type === 'batch') onBatch(d);
           else if (d.type === 'collision') onFwCollision(d.collision_t);
           else if (d.type === 'telemetry') onTelemetry(d);
+          else if (d.type === 'cal') onCal(d);
           else if (d.type === 'error') log('[ESP32] ' + d.message, 'error');
         };
         ws.onerror = () => log('[WS] Falha na conexão. Verifique IP/porta/Wi-Fi.', 'error');
@@ -578,7 +598,7 @@
     /* ---------- Início ---------- */
     window.onload = () => {
       log('Painel inicializado.'); log('Modo Simulação ativo.', 'warn');
-      setSim(true); resetSession(); onConfig();
+      setSim(true); resetSession(); refreshThr();
     };
   </script>
 </body>

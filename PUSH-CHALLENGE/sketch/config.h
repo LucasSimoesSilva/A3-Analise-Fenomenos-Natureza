@@ -15,9 +15,9 @@ const float   DEFAULT_COUNTS_PER_KG = 100000.0f;
 const uint8_t TARE_SAMPLES          = 20;
 
 // ---------------- Detecção do empurrão ----------------
-const float    PUSH_START_N   = 5.0f;    // passou disso = começou a empurrar
-const float    PUSH_END_N     = 2.0f;    // abaixo disso ...
-const uint16_t PUSH_END_HOLD_MS = 50;   // ... por esse tempo = terminou
+const float    PUSH_START_N   = 5.0f;    // começo do empurrão
+const float    PUSH_END_N     = 2.0f;    // Fim do empurrão
+const uint16_t PUSH_END_HOLD_MS = 50;   // Tempo do empurrão
 const uint32_t PUSH_MAX_MS    = 10000;   // segurança: empurrão de no máx. 10 s
 
 // ---------------- Saída serial ----------------

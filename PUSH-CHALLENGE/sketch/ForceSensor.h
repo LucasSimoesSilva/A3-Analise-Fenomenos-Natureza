@@ -6,13 +6,12 @@ class ForceSensor {
  public:
   void begin(uint8_t doutPin, uint8_t sckPin);
 
-  // Não bloqueia: só retorna true quando o HX711 tem leitura nova.
   bool read(float &newtons);
 
   bool tare(uint8_t samples);            // zera com a célula vazia
-  bool calibrate(float knownKg, uint8_t samples);  // com peso conhecido em cima
+  bool calibrate(float knownKg, uint8_t samples);
 
-  bool loadFromEeprom();  // true se havia calibração salva
+  bool loadFromEeprom();
   void saveToEeprom();
 
   long offset() const { return offset_; }

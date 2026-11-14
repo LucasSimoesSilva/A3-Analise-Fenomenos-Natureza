@@ -25,7 +25,7 @@ bool CollisionDetector::update(const Vec3 &a, uint32_t nowMs) {
  
   if (decel > peakG_) peakG_ = decel;
  
-  if (state_ != AirbagState::ARMED) return false;  // já disparou: fica travado
+  if (state_ != AirbagState::ARMED) return false;
  
   // 4) só desaceleração forte e SEGUIDA conta (ruído isolado é descartado)
   if (decel >= thresholdG_) {
