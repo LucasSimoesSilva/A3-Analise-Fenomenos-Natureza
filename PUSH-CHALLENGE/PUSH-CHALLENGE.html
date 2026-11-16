@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Desafio do Peteleco | Arduino Dashboard</title>
+  <title>Desafio do Empurrão | Arduino Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -45,10 +45,10 @@
   <header class="border-b border-brand-border bg-brand-card/80 backdrop-blur sticky top-0 z-50">
     <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
       <div>
-        <h1 class="font-bold text-lg tracking-wide">DESAFIO DO PETELECO <span
+        <h1 class="font-bold text-lg tracking-wide">DESAFIO DO EMPURRÃO <span
             class="text-sky-400 font-mono text-sm px-2 py-0.5 rounded bg-sky-950/60 border border-sky-800">ARDUINO</span>
         </h1>
-        <p class="text-xs text-slate-400">Medição de Força dos Petelecos & Ranking (Projeto A3)</p>
+        <p class="text-xs text-slate-400">Medição de Força dos Empurrões & Ranking (Projeto A3)</p>
       </div>
     </div>
   </header>
@@ -85,7 +85,7 @@
 
         <div class="bg-brand-card border border-brand-border rounded-xl p-5">
           <div class="mb-4">
-            <h2 class="font-bold text-base">Gráfico dos Petelecos</h2>
+            <h2 class="font-bold text-base">Gráfico dos Empurrões</h2>
             <p class="text-xs text-slate-400">Força x Tempo.</p>
           </div>
           <canvas id="impulseChart" height="130"></canvas>
@@ -96,7 +96,7 @@
       <div class="space-y-6">
         <div class="bg-brand-card border border-brand-border rounded-xl p-5">
           <h2 class="font-bold text-base">Tentativas da Rodada</h2>
-          <p class="text-xs text-slate-400 mb-4">Petelecos registrados na rodada atual.</p>
+          <p class="text-xs text-slate-400 mb-4">Empurrões registrados na rodada atual.</p>
           <ul id="attemptsList" class="attempts-list">
             <li style="color: #94a3b8;">Aguardando início da rodada...</li>
           </ul>
@@ -104,7 +104,7 @@
 
         <div class="bg-brand-card border border-brand-border rounded-xl p-5">
           <h2 class="font-bold text-base">High Scores</h2>
-          <p class="text-xs text-slate-400 mb-4">Ranking dos maiores petelecos.</p>
+          <p class="text-xs text-slate-400 mb-4">Ranking dos maiores empurrões.</p>
           <ol id="rankingList">
             <!-- Populado via JS -->
           </ol>
@@ -114,7 +114,7 @@
   </main>
 
   <footer class="border-t border-brand-border py-4 text-center text-xs text-slate-500">Projeto A3 - Engenharia de
-    Software | Desafio do Peteleco Arduino & Ranking</footer>
+    Software | Desafio do Empurrão Arduino & Ranking</footer>
 
   <script>
     let port, writer;
@@ -209,10 +209,10 @@
       // Processa o resultado do jogador para o Ranking
       if (currentRoundPeaks.length > 0) {
         const maxPeak = Math.max(...currentRoundPeaks);
-        const name = prompt(`Fim do tempo!\nO seu peteleco mais forte foi de ${maxPeak.toFixed(1)} N.\nDigite seu nome para o Ranking:`) || 'Visitante';
+        const name = prompt(`Fim do tempo!\nO seu empurrão mais forte foi de ${maxPeak.toFixed(1)} N.\nDigite seu nome para o Ranking:`) || 'Visitante';
         saveScore(name, maxPeak);
       } else {
-        alert('Nenhum peteleco detectado durante o tempo!');
+        alert('Nenhum empurrão detectado durante o tempo!');
       }
     }
 
@@ -256,7 +256,7 @@
         // Adiciona na lista lateral "Tentativa X"
         const list = document.getElementById('attemptsList');
         const li = document.createElement('li');
-        li.innerHTML = `<span>Peteleco ${currentRoundPeaks.length}</span> <strong>${peak.toFixed(1)} N</strong>`;
+        li.innerHTML = `<span>Empurrão ${currentRoundPeaks.length}</span> <strong>${peak.toFixed(1)} N</strong>`;
         list.appendChild(li);
         list.scrollTop = list.scrollHeight;
 
